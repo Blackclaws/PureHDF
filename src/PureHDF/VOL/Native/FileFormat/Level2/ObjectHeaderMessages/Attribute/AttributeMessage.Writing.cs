@@ -52,9 +52,16 @@ internal partial record class AttributeMessage
     ///         variable-length, since that is the one value a fixed-length field cannot represent.
     ///     </para>
     ///     <para>
-    ///         The width is always declared <see cref="PaddingType.NullPad" />. A measured width is by
-    ///         construction filled to its last byte by the longest element, and
-    ///         DatatypeMessage.GetTypeInfoForFixedLengthString has what NullTerminate costs such a value.
+    ///     The PADDING only governs the fixed-length path; a variable-length string ignores it and is always
+    ///     declared <see cref="PaddingType.NullTerminate" /> by DatatypeMessage.GetTypeInfoForVariableLengthString.
+    ///     Of the fixed-length cases, only MEASURE benefits from <see cref="PaddingType.NullPad" />: the width
+    ///     is by construction filled to its last byte by the longest element, and NullTerminate would reserve
+    ///     that byte for the terminator - so a tool rewriting the attribute through a wider datatype would
+    ///     drop the last character of the very value the width was measured from. INHERIT keeps
+    ///     <see cref="PaddingType.NullTerminate" /> to match PureHDF's pre-existing fixed-length behaviour,
+    ///     so the backward-compat escape hatch changes nothing on disk. VARIABLELENGTH returns
+    ///     <see langword="default" /> to signal the value is unused there (it falls through to
+    ///     <see cref="PaddingType.NullTerminate" /> = 0, which the variable-length path overrides anyway).
     ///     </para>
     ///     <para>
     ///         Reaches an attribute whose ELEMENTS are strings. A string that is a MEMBER of a compound attribute
@@ -66,43 +73,48 @@ internal partial record class AttributeMessage
     /// </remarks>
     private static (int? Width, PaddingType Padding) GetStringLengthForAttribute<TElement>(
         NativeWriteContext context,
-        Memory<TElement> data)
+        Memory<TElement> data
+    )
     {
         if (typeof(TElement) != typeof(string))
             return (default, PaddingType.NullTerminate);
 
-        var mode = context.WriteOptions.AttributeStringLength;
-
-        if (mode == H5AttributeStringLength.Inherit)
-            return (default, PaddingType.NullTerminate);
-
-        // An explicit zero rather than no answer at all, so that it overrides a DefaultStringLength that
-        // declares a width - which is the only reason to ask for this.
-        if (mode == H5AttributeStringLength.VariableLength)
-            return (0, PaddingType.NullTerminate);
-
-        if (mode != H5AttributeStringLength.Measured)
-            throw new NotSupportedException($"The attribute string length '{mode}' is not supported.");
-
-        var span = data.Span;
-        var width = 0;
-
-        for (int i = 0; i < span.Length; i++)
+        return context.WriteOptions.AttributeStringLength switch
         {
-            // A fixed-length field has nowhere to keep the difference between null and empty, so a null
-            // element hands the whole attribute back to variable-length rather than quietly becoming "".
-            // Measuring is only worth doing where it loses nothing, which is the entire argument for it.
-            if (span[i] is not string value)
-                return (0, PaddingType.NullTerminate);
+            H5AttributeStringLength.Inherit => (default(int?), PaddingType.NullTerminate),
+            H5AttributeStringLength.Measured => MeasureStringWidth(data),
 
-            width = Math.Max(width, Encoding.UTF8.GetByteCount(value));
+            // An explicit zero rather than no answer at all, so that it overrides a DefaultStringLength that
+            // declares a width - which is the only reason to ask for this.
+            H5AttributeStringLength.VariableLength => (0, default),
+
+            _ => throw new NotSupportedException(
+                $"The attribute string length '{context.WriteOptions.AttributeStringLength}' is not supported."
+            ),
+        };
+
+        static (int? Width, PaddingType Padding) MeasureStringWidth(Memory<TElement> data)
+        {
+            var span = data.Span;
+            int width = 0;
+
+            for (int i = 0; i < span.Length; i++)
+            {
+                // A fixed-length field has nowhere to keep the difference between null and empty, so a null
+                // element hands the whole attribute back to variable-length rather than quietly becoming "".
+                // Measuring is only worth doing where it loses nothing, which is the entire argument for it.
+                if (span[i] is not string value)
+                    return (0, default);
+
+                width = Math.Max(width, Encoding.UTF8.GetByteCount(value));
+            }
+
+            // HDF5 has no zero-length string type, so an attribute holding only empty strings still needs
+            // one byte.
+            width = Math.Max(width, 1);
+
+            return (width, PaddingType.NullPad);
         }
-
-        // HDF5 has no zero-length string type, so an attribute holding only empty strings still needs one
-        // byte.
-        width = Math.Max(width, 1);
-
-        return (width, PaddingType.NullPad);
     }
 
     private static AttributeMessage InternalCreate<T, TElement>(

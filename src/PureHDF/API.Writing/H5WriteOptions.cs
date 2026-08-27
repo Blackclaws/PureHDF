@@ -19,6 +19,36 @@ namespace PureHDF;
 /// <param name="PropertyNameMapper">Maps a <see cref="PropertyInfo"/> to the name of the HDF5 member.</param>
 /// <param name="PropertyStringLengthMapper">Maps a <see cref="PropertyInfo"/> of type string to the desired string length.</param>
 /// <param name="Filters">A list of filters and their options to be applied to datasets that have no explicit filters assigned.</param>
+/// <param name="AttributeStringLength">
+///     How a string attribute is sized. The default, <see cref="H5AttributeStringLength.Measured" />, makes
+///     it as wide as its own value.
+///     <para>
+///         Independent of <see cref="DefaultStringLength" />, which continues to govern datasets and the string
+///         members of a compound attribute. Set <see cref="H5AttributeStringLength.Inherit" /> to have
+///         attributes follow it as well.
+///     </para>
+///     <para>
+///         Under <see cref="H5AttributeStringLength.Measured" />, an attribute that holds a <see langword="null" />
+///         element is written variable-length, since a fixed-length field cannot distinguish <see langword="null" />
+///         from an empty string.
+///     </para>
+/// </param>
+/// <param name="StringOverflow">
+///     What to do with a string too long for the fixed-length width it is written into. The default,
+///     <see cref="H5StringOverflow.Truncate" />, keeps the bytes that fit and discards the rest.
+///     <para>
+///         Set <see cref="H5StringOverflow.Throw" /> to throw an <see cref="InvalidOperationException" />
+///         and fail the write instead. Worth doing wherever declared widths come from data that could grow,
+///         since the alternative is losing the excess with no indication - and, because widths are in
+///         bytes, losing it mid-character.
+///     </para>
+///     <para>
+///         Applies only where a width is DECLARED - a compound member sized by
+///         <see cref="DefaultStringLength" /> or a string length mapper, or an attribute set to
+///         <see cref="H5AttributeStringLength.Inherit" />. A measured width is taken from the value itself, so
+///         it cannot overflow.
+///     </para>
+/// </param>
 public record H5WriteOptions(
     int DefaultStringLength = default,
     int MinimumGlobalHeapCollectionSize = 4096,
@@ -33,38 +63,7 @@ public record H5WriteOptions(
     Func<FieldInfo, int?>? FieldStringLengthMapper = default,
     Func<PropertyInfo, string?>? PropertyNameMapper = default,
     Func<PropertyInfo, int?>? PropertyStringLengthMapper = default,
-    List<H5Filter>? Filters = default
-)
-{
-    // Declared in the body rather than as further positional parameters, deliberately: adding a
-    // parameter to a record's primary constructor changes its signature, which is a binary-breaking
-    // change for anything compiled against the previous version, while adding a property is not.
-
-    /// <summary>
-    ///     How a string attribute is sized. The default, <see cref="H5AttributeStringLength.Measured" />, makes
-    ///     it as wide as its own value.
-    /// </summary>
-    /// <remarks>
-    ///     Independent of <see cref="DefaultStringLength" />, which continues to govern datasets and the string
-    ///     members of a compound attribute. Set <see cref="H5AttributeStringLength.Inherit" /> to have
-    ///     attributes follow it as well.
-    /// </remarks>
-    public H5AttributeStringLength AttributeStringLength { get; init; } = H5AttributeStringLength.Measured;
-
-    /// <summary>
-    ///     What to do with a string too long for the fixed-length width it is written into. The default,
-    ///     <see cref="H5StringOverflow.Truncate" />, keeps the bytes that fit and discards the rest.
-    /// </summary>
-    /// <remarks>
-    ///     Set <see cref="H5StringOverflow.Throw" /> to fail the write instead. Worth doing wherever declared
-    ///     widths come from data that could grow, since the alternative is losing the excess with no
-    ///     indication - and, because widths are in bytes, losing it mid-character.
-    ///     <para>
-    ///         Applies only where a width is DECLARED - a compound member sized by
-    ///         <see cref="DefaultStringLength" /> or a string length mapper, or an attribute set to
-    ///         <see cref="H5AttributeStringLength.Inherit" />. A measured width is taken from the value itself, so
-    ///         it cannot overflow.
-    ///     </para>
-    /// </remarks>
-    public H5StringOverflow StringOverflow { get; init; } = H5StringOverflow.Truncate;
-}
+    List<H5Filter>? Filters = default,
+    H5AttributeStringLength AttributeStringLength = H5AttributeStringLength.Measured,
+    H5StringOverflow StringOverflow = H5StringOverflow.Truncate
+);

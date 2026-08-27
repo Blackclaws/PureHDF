@@ -56,7 +56,7 @@ var options = new H5WriteOptions(DefaultStringLength: 32);
 file.Write(filePath, options);
 ```
 
-A value too long for a declared width is truncated. Set `StringOverflow` to fail the write instead:
+A value too long for a declared width is truncated. Set `StringOverflow` to `Throw` to throw an `InvalidOperationException` instead:
 
 ```cs
 var options = new H5WriteOptions(DefaultStringLength: 32)
@@ -65,7 +65,7 @@ var options = new H5WriteOptions(DefaultStringLength: 32)
 };
 ```
 
-A `null` cannot be written into a fixed-length string at all, because the field has no way to record the difference between `null` and an empty string. Such a write is refused; use variable-length strings for data that contains nulls.
+A `null` cannot be written into a fixed-length string at all, because the field has no way to record the difference between `null` and an empty string. Such a write throws an `InvalidOperationException`; use variable-length strings for data that contains nulls.
 
 ## Attributes
 
@@ -83,7 +83,7 @@ var options = new H5WriteOptions(DefaultStringLength: 32)
 
 The three values are `Measured` (the default, as wide as the value), `Inherit` (`DefaultStringLength`, or variable-length when it is 0) and `VariableLength` (always variable-length, whatever `DefaultStringLength` says).
 
-An attribute holding a `null` element stays variable-length, since that is the only kind of string field that can hold one - so measuring never loses a value.
+Under `Measured`, an attribute holding a `null` element falls back to variable-length rather than declaring a fixed width, so it avoids the `InvalidOperationException` above - measuring never loses a value.
 
 This applies to an attribute whose elements *are* strings. A string that is a *member* of a compound attribute keeps its width from `DefaultStringLength` or a string length mapper, because a member's width has to stay the same across every object sharing that type.
 

@@ -649,7 +649,7 @@ internal partial record class DatatypeMessage : Message
 
             new VariableLengthBitFieldDescription(
                 Type: InternalVariableLengthType.String,
-                PaddingType: PaddingType.NullPad,
+                PaddingType: PaddingType.NullTerminate,
                 Encoding: CharacterSetEncoding.UTF8
             ),
 
