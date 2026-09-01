@@ -195,19 +195,31 @@ internal partial record class AttributeMessage
         return attributeMessage;
     }
 
-    public override ushort GetEncodeSize()
+    /// <summary>
+    /// The exact encoded size of the attribute message, in a width that cannot wrap.
+    /// </summary>
+    /// <remarks>
+    /// A header message declares its own size in two bytes (HeaderMessage.Encode), so
+    /// <see cref="ushort.MaxValue" /> is the most an attribute message can be. The data is only part of
+    /// that budget: the name, the datatype and the dataspace are counted in the same two bytes, so the
+    /// limit has to be tested against the whole message and not against the data alone.
+    /// <para>
+    /// ObjectHeader2.Encode allocates the object header from these sizes and then writes the messages at
+    /// their real length, so a size that wraps is not a wrong number in isolation - the header overruns
+    /// its own allocation, and the object it belongs to stops being readable at all.
+    /// </para>
+    /// </remarks>
+    internal static ulong GetEncodeSize(
+        string name,
+        DatatypeMessage datatype,
+        DataspaceMessage dataspace)
     {
-        if (Version != 3)
-            throw new Exception("Only version 3 attribute messages are supported.");
+        var nameEncodeSize = (ulong)Encoding.UTF8.GetByteCount(name) + 1;
 
-        var nameEncodeSize = Encoding.UTF8.GetBytes(Name).Length + 1;
-        var dataSize = Datatype.Size * Dataspace.Dimensions.Aggregate(1UL, (product, dimension) => product * dimension);
+        var dataSize = datatype.Size * dataspace.Dimensions
+            .Aggregate(1UL, (product, dimension) => product * dimension);
 
-        // TODO: make this more exact?
-        if (dataSize > 64 * 1024)
-            throw new Exception("The maximum attribute size is 64KB.");
-
-        var size =
+        return
             sizeof(byte) +
             sizeof(byte) +
             sizeof(ushort) +
@@ -215,9 +227,23 @@ internal partial record class AttributeMessage
             sizeof(ushort) +
             sizeof(byte) +
             nameEncodeSize +
-            Datatype.GetEncodeSize() +
-            Dataspace.GetEncodeSize() +
-            (ushort)dataSize;
+            datatype.GetEncodeSize() +
+            dataspace.GetEncodeSize() +
+            dataSize;
+    }
+
+    public override ushort GetEncodeSize()
+    {
+        if (Version != 3)
+            throw new Exception("Only version 3 attribute messages are supported.");
+
+        var size = GetEncodeSize(Name, Datatype, Dataspace);
+
+        if (size > ushort.MaxValue)
+            throw new Exception(
+                $"The attribute '{Name}' encodes to {size} bytes, which is more than the "
+                + $"{ushort.MaxValue} bytes an object header message can declare. Store the value as a "
+                + "dataset instead.");
 
         return (ushort)size;
     }
