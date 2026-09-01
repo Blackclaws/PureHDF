@@ -37,6 +37,74 @@ internal partial record class AttributeMessage
         }
     }
 
+    /// <summary>
+    ///     The width to declare for a string attribute, and the padding that width implies. A null width means
+    ///     no answer, deferring to <see cref="H5WriteOptions.DefaultStringLength" />.
+    /// </summary>
+    /// <remarks>
+    ///     <see cref="H5WriteOptions.AttributeStringLength" /> decides, independently of
+    ///     <see cref="H5WriteOptions.DefaultStringLength" />. The default is to MEASURE, because that option is
+    ///     FILE-GLOBAL: one width has to serve the widest attribute anywhere in the file, so every narrower
+    ///     attribute pays the difference in padding, and any value that exceeds it is truncated - by byte, so
+    ///     mid-UTF-8-sequence. A width taken from the value pads nothing and cannot truncate it.
+    ///     <para>
+    ///         A measured width is only taken where it costs nothing: an attribute holding a null element stays
+    ///         variable-length, since that is the one value a fixed-length field cannot represent.
+    ///     </para>
+    ///     <para>
+    ///         The width is always declared <see cref="PaddingType.NullPad" />. A measured width is by
+    ///         construction filled to its last byte by the longest element, and
+    ///         DatatypeMessage.GetTypeInfoForFixedLengthString has what NullTerminate costs such a value.
+    ///     </para>
+    ///     <para>
+    ///         Reaches an attribute whose ELEMENTS are strings. A string that is a MEMBER of a compound attribute
+    ///         is sized by <see cref="H5WriteOptions.DefaultStringLength" /> or a string length mapper whatever the
+    ///         setting says, for the same reason datasets are left out entirely: a member's width has to cover
+    ///         every row and stay uniform across the objects sharing that type, so it must not be derived from one
+    ///         value.
+    ///     </para>
+    /// </remarks>
+    private static (int? Width, PaddingType Padding) GetStringLengthForAttribute<TElement>(
+        NativeWriteContext context,
+        Memory<TElement> data)
+    {
+        if (typeof(TElement) != typeof(string))
+            return (default, PaddingType.NullTerminate);
+
+        var mode = context.WriteOptions.AttributeStringLength;
+
+        if (mode == H5AttributeStringLength.Inherit)
+            return (default, PaddingType.NullTerminate);
+
+        // An explicit zero rather than no answer at all, so that it overrides a DefaultStringLength that
+        // declares a width - which is the only reason to ask for this.
+        if (mode == H5AttributeStringLength.VariableLength)
+            return (0, PaddingType.NullTerminate);
+
+        if (mode != H5AttributeStringLength.Measured)
+            throw new NotSupportedException($"The attribute string length '{mode}' is not supported.");
+
+        var span = data.Span;
+        var width = 0;
+
+        for (int i = 0; i < span.Length; i++)
+        {
+            // A fixed-length field has nowhere to keep the difference between null and empty, so a null
+            // element hands the whole attribute back to variable-length rather than quietly becoming "".
+            // Measuring is only worth doing where it loses nothing, which is the entire argument for it.
+            if (span[i] is not string value)
+                return (0, PaddingType.NullTerminate);
+
+            width = Math.Max(width, Encoding.UTF8.GetByteCount(value));
+        }
+
+        // HDF5 has no zero-length string type, so an attribute holding only empty strings still needs one
+        // byte.
+        width = Math.Max(width, 1);
+
+        return (width, PaddingType.NullPad);
+    }
+
     private static AttributeMessage InternalCreate<T, TElement>(
         NativeWriteContext context,
         string name,
@@ -55,8 +123,16 @@ internal partial record class AttributeMessage
         var type = memoryData.GetType();
 
         /* datatype */
+        var (stringLength, stringPadding) = GetStringLengthForAttribute(context, memoryData);
+
         var (datatype, encode) =
-            DatatypeMessage.Create(context, memoryData, isScalar, attribute.OpaqueInfo);
+            DatatypeMessage.Create(
+                context,
+                memoryData,
+                isScalar,
+                attribute.OpaqueInfo,
+                stringLength,
+                stringPadding);
 
         if (attribute.OpaqueInfo is not null && datatype.Class == DatatypeMessageClass.Opaque)
             memoryDims = [(ulong)memoryData.Length / attribute.OpaqueInfo.TypeSize];

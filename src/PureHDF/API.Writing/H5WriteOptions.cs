@@ -34,4 +34,37 @@ public record H5WriteOptions(
     Func<PropertyInfo, string?>? PropertyNameMapper = default,
     Func<PropertyInfo, int?>? PropertyStringLengthMapper = default,
     List<H5Filter>? Filters = default
-);
+)
+{
+    // Declared in the body rather than as further positional parameters, deliberately: adding a
+    // parameter to a record's primary constructor changes its signature, which is a binary-breaking
+    // change for anything compiled against the previous version, while adding a property is not.
+
+    /// <summary>
+    ///     How a string attribute is sized. The default, <see cref="H5AttributeStringLength.Measured" />, makes
+    ///     it as wide as its own value.
+    /// </summary>
+    /// <remarks>
+    ///     Independent of <see cref="DefaultStringLength" />, which continues to govern datasets and the string
+    ///     members of a compound attribute. Set <see cref="H5AttributeStringLength.Inherit" /> to have
+    ///     attributes follow it as well.
+    /// </remarks>
+    public H5AttributeStringLength AttributeStringLength { get; init; } = H5AttributeStringLength.Measured;
+
+    /// <summary>
+    ///     What to do with a string too long for the fixed-length width it is written into. The default,
+    ///     <see cref="H5StringOverflow.Truncate" />, keeps the bytes that fit and discards the rest.
+    /// </summary>
+    /// <remarks>
+    ///     Set <see cref="H5StringOverflow.Throw" /> to fail the write instead. Worth doing wherever declared
+    ///     widths come from data that could grow, since the alternative is losing the excess with no
+    ///     indication - and, because widths are in bytes, losing it mid-character.
+    ///     <para>
+    ///         Applies only where a width is DECLARED - a compound member sized by
+    ///         <see cref="DefaultStringLength" /> or a string length mapper, or an attribute set to
+    ///         <see cref="H5AttributeStringLength.Inherit" />. A measured width is taken from the value itself, so
+    ///         it cannot overflow.
+    ///     </para>
+    /// </remarks>
+    public H5StringOverflow StringOverflow { get; init; } = H5StringOverflow.Truncate;
+}
