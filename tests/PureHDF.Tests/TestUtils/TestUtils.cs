@@ -9,7 +9,36 @@ namespace PureHDF.Tests;
 
 public partial class TestUtils
 {
-    public static string? DumpH5File(string filePath)
+    /// <summary>
+    /// What h5dump reported: its exit code, and both streams unmodified.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Failed" /> is the part worth asking for. h5dump prints its error stack to stderr and
+    /// still writes a partial tree to stdout, and <see cref="DumpH5File" /> strips that stack so the 134
+    /// fixture comparisons do not depend on the locally installed version - which also strips every
+    /// trace of failure, so a test asserting the dump does not contain "error" cannot fail. Ask this
+    /// instead when the question is whether the C library accepted the file at all.
+    /// </remarks>
+    public sealed record H5DumpResult(int ExitCode, string Stdout, string Stderr)
+    {
+        public bool Failed => ExitCode != 0 || Stderr.Contains("HDF5-DIAG:", StringComparison.Ordinal);
+
+        /// <summary>
+        /// The first few lines of the error stack, for a failure message worth reading.
+        /// </summary>
+        public string Diagnostics => string.Join(
+            Environment.NewLine,
+            Stderr
+                .Split('\n')
+                .Where(line => line.Contains("line ", StringComparison.Ordinal) || line.Contains("error", StringComparison.OrdinalIgnoreCase))
+                .Take(4)
+                .Select(line => line.Trim()));
+    }
+
+    /// <summary>
+    /// Runs h5dump and reports everything it said. Null when h5dump is not installed.
+    /// </summary>
+    public static H5DumpResult? RunH5Dump(string filePath)
     {
         // Read stdout and stderr concurrently on background tasks to
         // avoid deadlock if h5dump writes more than ~64 KB to stderr before
@@ -27,7 +56,18 @@ public partial class TestUtils
             }
         };
 
-        h5dumpProcess.Start();
+        try
+        {
+            h5dumpProcess.Start();
+        }
+
+        // Not installed. Reported as null rather than thrown, so that a Skip.If on it actually skips:
+        // these tests are about what the C library makes of a file, and there is nothing to learn
+        // without the C library.
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
 
         var stdoutTask = Task.Run(() => h5dumpProcess.StandardOutput.ReadToEnd());
         var stderrTask = Task.Run(() => h5dumpProcess.StandardError.ReadToEnd());
@@ -45,27 +85,39 @@ public partial class TestUtils
                 $"h5dump did not exit within {timeoutMs} ms for '{filePath}'.");
         }
 
-        var stdoutStr = stdoutTask.GetAwaiter().GetResult().TrimEnd('\r', '\n');
-        var stderrStr = stderrTask.GetAwaiter().GetResult().TrimEnd('\r', '\n');
+        return new H5DumpResult(
+            ExitCode: h5dumpProcess.ExitCode,
+            Stdout: stdoutTask.GetAwaiter().GetResult().TrimEnd('\r', '\n'),
+            Stderr: stderrTask.GetAwaiter().GetResult().TrimEnd('\r', '\n'));
+    }
+
+    public static string? DumpH5File(string filePath)
+    {
+        var result = RunH5Dump(filePath);
+
+        if (result is null)
+            return null;
+
+        var stdoutStr = result.Stdout;
+        var stderrStr = result.Stderr;
+
         if (stdoutStr.Length == 0)
         {
             throw new InvalidOperationException(
-                $"h5dump produced no stdout for '{filePath}' (exit code {h5dumpProcess.ExitCode}). " +
+                $"h5dump produced no stdout for '{filePath}' (exit code {result.ExitCode}). " +
                 $"stderr:{Environment.NewLine}{stderrStr}");
         }
 
         var dump = stderrStr.Length > 0
             ? stdoutStr + Environment.NewLine + stderrStr
             : stdoutStr;
-			
+
         // Strip h5dump's trailing HDF5-DIAG error stack so the comparison
-        // doesn't depend on the locally-installed h5dump version. 
-        if (dump is not null)
-        {
-            var diagIdx = dump.IndexOf("HDF5-DIAG:", StringComparison.Ordinal);
-            if (diagIdx >= 0)
-                dump = dump[..diagIdx].TrimEnd('\r', '\n');
-        }
+        // doesn't depend on the locally-installed h5dump version.
+        var diagIdx = dump.IndexOf("HDF5-DIAG:", StringComparison.Ordinal);
+
+        if (diagIdx >= 0)
+            dump = dump[..diagIdx].TrimEnd('\r', '\n');
 
         return dump;
     }
