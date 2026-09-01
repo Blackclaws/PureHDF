@@ -49,7 +49,11 @@ internal partial record class AttributeMessage
     ///     mid-UTF-8-sequence. A width taken from the value pads nothing and cannot truncate it.
     ///     <para>
     ///         A measured width is only taken where it costs nothing: an attribute holding a null element stays
-    ///         variable-length, since that is the one value a fixed-length field cannot represent.
+    ///         variable-length, since that is the one value a fixed-length field cannot represent, and so does one
+    ///         whose measured width would not fit an object header message - see InternalCreate, which can only
+    ///         test that once the datatype and dataspace exist. A fixed-length value is stored inline, so a wide
+    ///         one competes with the rest of the message for the 65535 bytes it can declare, where a
+    ///         variable-length value costs 16 bytes per element whatever its length.
     ///     </para>
     ///     <para>
     ///     The PADDING only governs the fixed-length path; a variable-length string ignores it and is always
@@ -154,6 +158,18 @@ internal partial record class AttributeMessage
 
         var dataspace = DataspaceMessage.Create(
             fileDims: fileDims);
+
+        /* a measured width that does not fit hands the attribute back to variable-length */
+        if (stringLength > 0 && GetEncodeSize(name, datatype, dataspace) > ushort.MaxValue)
+        {
+            (datatype, encode) = DatatypeMessage.Create(
+                context,
+                memoryData,
+                isScalar,
+                attribute.OpaqueInfo,
+                0,
+                default);
+        }
 
         /* validation */
         if (dataspace.Type != DataspaceType.Null)

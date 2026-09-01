@@ -85,6 +85,8 @@ The three values are `Measured` (the default, as wide as the value), `Inherit` (
 
 Under `Measured`, an attribute holding a `null` element falls back to variable-length rather than declaring a fixed width, so it avoids the `InvalidOperationException` above - measuring never loses a value.
 
+An attribute too large to store inline falls back the same way. An attribute message carries its data next to its name, datatype and dataspace within a total of 65535 bytes, and a measured width is stored inline, so a wide value or a long array can exceed it - where a variable-length value costs 16 bytes per element whatever its length. A width from `DefaultStringLength` is not adjusted, since it was asked for explicitly; such a write reports the limit instead.
+
 This applies to an attribute whose elements *are* strings. A string that is a *member* of a compound attribute keeps its width from `DefaultStringLength` or a string length mapper, because a member's width has to stay the same across every object sharing that type.
 
 # Opaque Data

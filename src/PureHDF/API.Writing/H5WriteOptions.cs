@@ -30,7 +30,8 @@ namespace PureHDF;
 ///     <para>
 ///         Under <see cref="H5AttributeStringLength.Measured" />, an attribute that holds a <see langword="null" />
 ///         element is written variable-length, since a fixed-length field cannot distinguish <see langword="null" />
-///         from an empty string.
+///         from an empty string. So is one too large to be stored inline, an attribute message being limited to
+///         65535 bytes in total.
 ///     </para>
 /// </param>
 /// <param name="StringOverflow">

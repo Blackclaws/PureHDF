@@ -24,7 +24,10 @@ public enum H5AttributeStringLength
     ///     widest attribute anywhere in the file and every narrower attribute pays the difference in padding.
     ///     <para>
     ///         An attribute holding a null element stays variable-length, since that is the one value a
-    ///         fixed-length field cannot represent - so measuring never loses anything.
+    ///         fixed-length field cannot represent - so measuring never loses anything. So does one whose
+    ///         measured width would not fit an object header message, which can declare 65535 bytes for the
+    ///         whole attribute: a fixed-length value is stored inline and competes for that budget, where a
+    ///         variable-length one costs 16 bytes per element whatever its length.
     ///     </para>
     /// </remarks>
     Measured = 0,
